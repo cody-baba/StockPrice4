@@ -4,22 +4,23 @@ import xml.etree.ElementTree as ET
 
 app = FastAPI()
 
-@app.get("/")
-def root():
-    return {"status": "ok"}
+VALID_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1d", "5d", "1wk", "1mo", "3mo"}
 
 @app.get("/stock/{symbol}")
 def stock_info(symbol: str, interval: str = "1d"):
     try:
-        # Use yf.download instead of ticker.info/history
+        if interval not in VALID_INTERVALS:
+            raise ValueError(f"Unsupported interval '{interval}'")
+
         hist = yf.download(symbol, period="3mo", interval=interval)
         if hist.empty:
-            raise ValueError("No data returned for symbol")
+            # fallback to daily if original interval fails
+            hist = yf.download(symbol, period="3mo", interval="1d")
+            if hist.empty:
+                raise ValueError(f"No data returned for symbol '{symbol}' with interval '{interval}' or fallback")
 
-        # Get latest close price
         current_price = hist["Close"].iloc[-1]
 
-        # Build XML root
         root = ET.Element("stock")
         ET.SubElement(root, "symbol").text = symbol
         ET.SubElement(root, "current_price").text = str(current_price)
@@ -33,7 +34,6 @@ def stock_info(symbol: str, interval: str = "1d"):
             ET.SubElement(record, "open").text = str(row["Open"])
             ET.SubElement(record, "close").text = str(row["Close"])
 
-        # Convert to string
         xml_str = ET.tostring(root, encoding="utf-8")
         return Response(content=xml_str, media_type="application/xml")
 

@@ -10,28 +10,35 @@ def root():
 
 @app.get("/stock/{symbol}")
 def stock_info(symbol: str, interval: str = "1d"):
-    ticker = yf.Ticker(symbol)
-    info = ticker.info or {}
-    current_price = info.get("currentPrice")
+    try:
+        # Use yf.download instead of ticker.info/history
+        hist = yf.download(symbol, period="3mo", interval=interval)
+        if hist.empty:
+            raise ValueError("No data returned for symbol")
 
-    hist = ticker.history(period="3mo", interval=interval)
+        # Get latest close price
+        current_price = hist["Close"].iloc[-1]
 
-    # Build XML root
-    root = ET.Element("stock")
-    ET.SubElement(root, "symbol").text = symbol
-    ET.SubElement(root, "current_price").text = str(current_price)
-    ET.SubElement(root, "period").text = "3mo"
-    ET.SubElement(root, "interval").text = interval
+        # Build XML root
+        root = ET.Element("stock")
+        ET.SubElement(root, "symbol").text = symbol
+        ET.SubElement(root, "current_price").text = str(current_price)
+        ET.SubElement(root, "period").text = "3mo"
+        ET.SubElement(root, "interval").text = interval
 
-    history_elem = ET.SubElement(root, "history")
-    for date, row in hist.iterrows():
-        record = ET.SubElement(history_elem, "record")
-        ET.SubElement(record, "date").text = date.strftime("%Y-%m-%d")
-        ET.SubElement(record, "open").text = str(row["Open"])
-        ET.SubElement(record, "close").text = str(row["Close"])
+        history_elem = ET.SubElement(root, "history")
+        for date, row in hist.iterrows():
+            record = ET.SubElement(history_elem, "record")
+            ET.SubElement(record, "date").text = date.strftime("%Y-%m-%d")
+            ET.SubElement(record, "open").text = str(row["Open"])
+            ET.SubElement(record, "close").text = str(row["Close"])
 
-    # Convert to string
-    xml_str = ET.tostring(root, encoding="utf-8")
+        # Convert to string
+        xml_str = ET.tostring(root, encoding="utf-8")
+        return Response(content=xml_str, media_type="application/xml")
 
-    return Response(content=xml_str, media_type="application/xml")
-
+    except Exception as e:
+        error_root = ET.Element("error")
+        ET.SubElement(error_root, "message").text = str(e)
+        xml_str = ET.tostring(error_root, encoding="utf-8")
+        return Response(content=xml_str, media_type="application/xml")
